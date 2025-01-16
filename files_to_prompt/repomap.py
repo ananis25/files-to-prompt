@@ -64,6 +64,7 @@ class RepoMap:
         # Load the tree-sitter queries for the given language
         query_scm = get_scm_fname(lang)
         if not query_scm or not query_scm.exists():
+            print(f"Could not find treesitter query file for {lang}", file=sys.stderr)
             return []
 
         query_scm_text = query_scm.read_text()

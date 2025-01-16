@@ -27,3 +27,9 @@ files-to-prompt = "files_to_prompt.cli:app"
 
 [project.optional-dependencies]
 test = ["pytest"]
+
+[tool.setuptools.packages.find]
+where = ["files_to_prompt"]
+
+[tool.setuptools.package-data]
+files_to_prompt = ["*.scm"]
