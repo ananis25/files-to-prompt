@@ -11,7 +11,7 @@ For background on this project see [Building files-to-prompt entirely using Clau
 Install this tool using `uv`:
 
 ```bash
-uv tool install 
+uv tool install git+https://github.com/ananis25/files-to-prompt --python=3.11
 ```
 
 ## Usage
