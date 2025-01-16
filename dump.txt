@@ -1,0 +1,2728 @@
+/home/ubuntu/repos/g-pipelines/scripts/generate_openapi_schemas.py
+---
+│"""Generate OpenAPI schemas logs of deployed apps."""
+│
+│import argparse
+│import json
+│import os
+│import re
+│import shutil
+│from urllib.parse import urljoin
+│
+│import httpx
+│
+⋮...
+│def process_logs(logs_file):
+⋮...
+│def main(logs_file):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/__init__.py
+---
+│def hello() -> str:
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/app_types.py
+---
+│"""
+│Types used in communication with the Gestalt frontend.
+│"""
+│
+│import datetime as dt
+│import typing as t
+│from enum import Enum
+│from typing import Literal, Optional, Union
+│
+│from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+│from sqlglot import exp, parse_one
+│
+│from pipelines.packages.common import get_default_snapshot_for_today
+│from pipelines.packages.constants import COL_PERSON_ID, AttributeType, DataSource
+│
+⋮...
+│class DateFormat(str, Enum):
+⋮...
+│class UncertaintyType(str, Enum):
+⋮...
+│class ConfidenceIntervalUncertainty(BaseModel):
+⋮...
+│class ProbabilityDistributionUncertainty(BaseModel):
+⋮...
+│class StandardErrorUncertainty(BaseModel):
+⋮...
+│class ConfidenceScoreUncertainty(BaseModel):
+⋮...
+│class EntropyUncertainty(BaseModel):
+⋮...
+│class FuzzyMembershipUncertainty(BaseModel):
+⋮...
+│class TimeRangeUncertainty(BaseModel):
+⋮...
+│class AttributeMetadata(BaseModel):
+│    sqlType: str
+⋮...
+│    @model_validator(mode="after")
+│    def validate_citation(self):
+⋮...
+│class IdentityAttributeMetadata(AttributeMetadata): ...
+│
+⋮...
+│class CategoricalAttributeMetadata(AttributeMetadata):
+⋮...
+│class BooleanAttributeMetadata(AttributeMetadata): ...
+│
+⋮...
+│class TemporalAttributeMetadata(AttributeMetadata):
+⋮...
+│class UnstructuredAttributeMetadata(AttributeMetadata):
+⋮...
+│class NumericalAttributeMetadata(AttributeMetadata):
+⋮...
+│class OrdinalAttributeMetadata(AttributeMetadata):
+⋮...
+│class Attribute(BaseModel):
+│    field: str
+⋮...
+│    @field_validator("meta", mode="before")
+│    @classmethod
+│    def validate_meta(cls, v, info: ValidationInfo):
+⋮...
+│class UnaryPredicateOperator(str, Enum):
+⋮...
+│class MultaryPredicateOperator(str, Enum):
+⋮...
+│class UnaryPredicate(BaseModel):
+⋮...
+│class MultaryPredicate(BaseModel):
+⋮...
+│class PredicateTree(BaseModel):
+⋮...
+│class Population(BaseModel):
+⋮...
+│def get_list_attribute_names(population: Population) -> list[str]:
+│    """Get the list of attribute names from the population."""
+│
+⋮...
+│def get_filter_for_population(filters: PredicateTree | None) -> exp.Expression:
+│    """Get the filter expression for the population. Note this filter is over
+│    the person-attributes table.
+│    """
+│
+│    def _quote_text_literal(value: t.Any) -> t.Any:
+⋮...
+│    def _build_predicate_expression(predicate: Predicate) -> exp.Expression:
+⋮...
+│    def _build_tree_expression(tree: PredicateTree) -> exp.Expression:
+⋮...
+│class SourceInput(BaseModel):
+⋮...
+│class SnapshotInput(BaseModel):
+⋮...
+│class ExtractInput(SnapshotInput):
+⋮...
+│class SyncInput(SnapshotInput):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/common.py
+---
+│import asyncio
+│import datetime as dt
+│import io
+│import time
+│import traceback
+│import typing as t
+│
+│import httpx
+│import more_itertools
+│
+│from pipelines.packages import logger
+│from pipelines.packages.constants import DestinationType
+│
+│if t.TYPE_CHECKING:
+│    import pyarrow as pa
+│    from fastapi.responses import StreamingResponse
+│
+⋮...
+│class Timer:
+│    """Context manager to measure time taken in a block of code."""
+│
+│    def __init__(self):
+⋮...
+│    def __enter__(self):
+⋮...
+│    def __exit__(self, exc_type, exc_value, traceback):
+⋮...
+│    def clock(self):
+⋮...
+│def run_async(coro):
+│    import asyncio
+│    from concurrent.futures import ThreadPoolExecutor
+│
+⋮...
+│async def http_batch_requests(
+│    data: t.Sequence[dict],
+│    make_payload: t.Callable[[list[dict]], dict],
+│    request_url: str,
+│    batch_size: int = 100,
+│    max_concurrent: int = 10,
+│    timeout: int = 60,
+│    headers: dict | None = None,
+│):
+│    failed_items = []
+⋮...
+│    async def process_batch(client, batch):
+⋮...
+│def read_error_location(error: Exception) -> list[str]:
+│    """
+│    Log the error message, the file and line where the error occurred,
+│    and the first level of the call stack.
+│    """
+⋮...
+│def make_org_database_name(
+│    org_slug: str, service: DestinationType, suffix: str | None = None
+│):
+│    """Construct database name for the census/locus destination.
+│
+│    NOTE: We prefix a `service name` to all identifiers to disambiguate databases since
+│    they might be shared across customer/gestalt Motherduck accounts.
+│    """
+│
+⋮...
+│def get_default_snapshot_for_today():
+│    """Get the default snapshot for today, using start of current day in GMT."""
+⋮...
+│def map_source_to_destination_schema(source_name: str) -> str:
+│    """Map a source name to the destination schema name."""
+⋮...
+│def arrow_batch_buffers_generator(table: "pa.Table"):
+│    """Generates Arrow IPC serialized buffers given the table. Used to construct
+│    a FastAPI StreamingResponse.
+│    """
+│    import pyarrow as pa
+│
+⋮...
+│async def arrow_table_from_stream_response(response: "StreamingResponse"):
+│    """Construct an Arrow Table from a FastAPI StreamingResponse.
+│
+│    Useful for testing without starting a FastAPI server.
+│    """
+│    import pyarrow as pa
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/constants.py
+---
+│import dataclasses
+│import typing as t
+│from enum import Enum
+│
+⋮...
+│class DestinationType(Enum):
+│    """Enum to represent the destination service names.
+│
+│    NOTE: Following the supabase schema here, not sure why it is called a `service`.
+│    """
+│
+⋮...
+│class DataSource(str, Enum):
+│    """Enum to represent the data sources we have implemented for the extract pipeline."""
+│
+⋮...
+│class AttributeType(str, Enum):
+│    """Attribute type for a dimension column."""
+│
+⋮...
+│class MissingRecordError(Exception):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/logger.py
+---
+│import contextvars
+│import functools
+│import inspect
+│import sys
+│import time
+│import typing as t
+│from contextlib import contextmanager
+│
+│from loguru import logger
+│
+⋮...
+│def get_caller_info():
+│    """Get the caller's module, function, and line number.
+│
+│    NOTE: This gets used at runtime. We want the logs to indicate the location of
+│    the function where the `span` is called from.
+│    """
+⋮...
+│def patch_routine(record):
+│    """Edit the record before loguru dispatches it to the handlers."""
+⋮...
+│@t.overload
+│def instrument(func: F) -> F: ...
+│
+⋮...
+│@t.overload
+│def instrument(**kwargs: t.Any) -> t.Callable[[F], F]: ...
+│
+⋮...
+│def instrument(*dec_args: t.Any, **dec_kwargs: t.Any) -> t.Any:
+│    """Instrument a function.
+│
+│    NOTE: We want the logs to indicate the location of the decorated function, so we
+│    feed that information into the log message here.
+│    """
+│
+│    def decorator(fn):
+│        @functools.wraps(fn)
+│        def wrapper(*args, **kwargs):
+│            module = inspect.getmodule(fn)
+│            location = {
+│                "name": module.__name__ if module else "Unknown",
+│                "function": fn.__qualname__,
+│                "line": fn.__code__.co_firstlineno,
+│            }
+│            with span(fn.__name__, location=location, **dec_kwargs):
+⋮...
+│@contextmanager
+│def span(
+│    msg, location: dict | None = None, skip_error_logs: list[Exception] | None = None
+│):
+│    """Return a logging span with the specified message."""
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/workflows.py
+---
+│import contextvars
+│import enum
+│import functools
+│import json
+│import time
+│import typing as t
+│
+│import pydantic
+│
+│from pipelines.packages import logger
+│from pipelines.packages.providers.supabase import client as supabase_client
+│
+⋮...
+│class RunContext(pydantic.BaseModel):
+⋮...
+│class TaskRunStatus(enum.StrEnum):
+⋮...
+│def setup_task_runs_table():
+⋮...
+│def step(fn: F) -> F:
+│    """Runs a single step in a task."""
+│
+│    @functools.wraps(fn)
+│    def wrapper(*args, **kwargs):
+⋮...
+│class CachedTask(pydantic.BaseModel):
+│    """Cache each individual step of a task, and replay the steps if they have already been run."""
+│
+│    @property
+│    def key(self):
+⋮...
+│    def run(self):
+⋮...
+│    def reset(self):
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/providers/modal/__init__.py
+---
+│"""Utilities to create modal endpoints for Gestalt apps.
+│
+│NOTE: Limit the external dependencies used here, we dont want to package
+│everything in each Modal image.
+│"""
+│
+│import os
+│import shlex
+│import typing as t
+│
+│import fastapi
+│import toml
+│
+│from pipelines.packages import logger
+│
+⋮...
+│def set_image_builder_version():
+⋮...
+│def create_uv_install_cmd_from_pyproject(
+│    pyproject_toml: str,
+│    optional_dependencies: t.Optional[list[str]] = None,
+│):
+│    """Install dependencies specified by a local `pyproject.toml` file.
+│
+│    `optional_dependencies` is a list of the keys of the
+│    optional-dependencies section(s) of the `pyproject.toml` file
+│    (e.g. test, doc, experiment, etc). When provided,
+│    all of the packages in each listed section are installed as well.
+│
+│    NOTE: Copied off Modal's SDK so we could use `uv` instead of `pip` for
+│    quicker installs.
+│    """
+│
+⋮...
+│def _add_cors_middleware(web_app: fastapi.FastAPI):
+│    from fastapi.middleware.cors import CORSMiddleware
+│
+│    from pipelines.packages.constants import GESTALT_DOMAINS
+│
+⋮...
+│def _add_auth_middleware(web_app: fastapi.FastAPI):
+│    from starlette.middleware.base import BaseHTTPMiddleware
+│
+⋮...
+│def _add_logging_to_request_validation_errors(web_app: fastapi.FastAPI):
+│    from fastapi.exception_handlers import request_validation_exception_handler
+│    from fastapi.exceptions import RequestValidationError
+│
+│    async def custom_handler(request, exc):
+⋮...
+│def add_middleware(web_app: fastapi.FastAPI):
+│    """Add all of the middlewares to the app.
+│
+│    NOTE:
+│    - FastAPI runs the middlewares in the opposite order of how they are added.
+│    - We really want to run CORS first, then auth.
+│    """
+│
+⋮...
+│def read_org_slug_from_request(request: fastapi.Request) -> str:
+│    """Read the organization ID as parsed from the request headers."""
+⋮...
+│def _fetch_org_slug_from_supabase_token(token: str) -> str:
+│    """Fetch the organization ID from the user's Supabase token when they are authenticated."""
+│
+│    import jwt
+│
+⋮...
+│def _read_org_slug_from_mapping(mapping: t.Mapping[str, str]) -> str | None:
+│    """Read the organization ID as parsed from the request headers or query params.
+│
+│    Note that this is the slug, not the ID in the Gestalt's authentication provider (which is a UUID).
+│    """
+│
+⋮...
+│def _invalid_auth_token_exc():
+⋮...
+│async def authentication_middleware(request: fastapi.Request, call_next):
+│    """Read the organization ID from the Authorization header and store it in the request state."""
+│
+⋮...
+│def _get_route_details(request_scope):
+│    """
+│    Function to retrieve Starlette route from scope.
+│
+│    NOTE:
+│    - Copied from Opentelemetry Python SDK.
+│    - https://github.com/open-telemetry/opentelemetry-python-contrib/blob/main/instrumentation/opentelemetry-instrumentation-fastapi/src/opentelemetry/instrumentation/fastapi/__init__.py
+│    """
+│
+│    from starlette.routing import Match
+│
+⋮...
+│async def logging_middleware(request: fastapi.Request, call_next):
+│    """Initialize a logging span for each request."""
+│
+⋮...
+│def make_app_endpoint(web_app: fastapi.FastAPI, fn: t.Callable, path: str):
+│    """Use when you don't want to write a FastAPI endpoint for each function."""
+│
+│    @web_app.post(path)
+│    def endpoint(body: dict):
+│        import inspect
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/providers/litellm/__init__.py
+---
+│import os
+│
+⋮...
+│import litellm
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/providers/motherduck/__init__.py
+---
+│"""Utilities to connect to Motherduck and perform operations as a Gestalt admin/Customer org.
+│
+│ETL related logic lives in the `etl` subpackage.
+│"""
+│
+│import threading
+│import typing as t
+│
+│import duckdb
+│import pyarrow as pa
+│
+⋮...
+│def make_motherduck_conn(**params) -> duckdb.DuckDBPyConnection:
+⋮...
+│def query_connection(
+│    conn: duckdb.DuckDBPyConnection,
+│    query_string: str,
+│    params: t.Optional[dict] = None,
+│    arrow: bool = False,
+⋮...
+│class DuckDBConnectionRegistry:
+│    """Registry for DuckDB connections, indexed by org_slug."""
+│
+│    def __init__(self):
+⋮...
+│    def put(self, key: str, connection_params: dict):
+⋮...
+│    def get(self, key: str):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/providers/motherduck/utils.py
+---
+│"""
+│NOTE: All methods should use the database connection directly, instead of inferring it.
+│"""
+│
+│import duckdb
+│
+│from pipelines.packages import logger
+│from pipelines.packages.common import map_source_to_destination_schema
+│from pipelines.packages.constants import MissingRecordError
+│from pipelines.packages.providers.motherduck import DuckDBConnectionRegistry
+│
+⋮...
+│def setup_destination_database(conn: duckdb.DuckDBPyConnection, database: str) -> dict:
+⋮...
+│def teardown_destination_database(
+│    conn: duckdb.DuckDBPyConnection, database: str
+⋮...
+│def remove_data_source_from_destination_database(
+│    conn: duckdb.DuckDBPyConnection, database: str, source_name: str
+⋮...
+│@logger.instrument
+│def get_motherduck_conn_locus(org_slug: str) -> "duckdb.DuckDBPyConnection":
+│    from pipelines.packages.providers.supabase import queries as app_queries
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/providers/supabase/client.py
+---
+│"""
+│Test node
+│
+│A
+│
+│B
+│
+│
+│hola
+│"""
+│
+│import hashlib
+│import os
+│import typing as t
+│from contextlib import contextmanager
+│from contextvars import ContextVar
+│
+│import sqlalchemy
+│from pipelines.packages import logger
+│from pipelines.packages.constants import MissingRecordError
+│from sqlalchemy import text
+│
+⋮...
+│def get_database() -> sqlalchemy.engine.Engine:
+│    """Initializes and returns a sqlalchemy engine to query the Supabase postgres database."""
+⋮...
+│@contextmanager
+│def transaction():
+│    """Context manager to run a transaction. Creates a new transaction if one doesn't exist."""
+⋮...
+│def get_new_connection():
+⋮...
+│@logger.instrument(skip_error_logs=[MissingRecordError])
+│def fetch_one(query: str, params: dict) -> dict:
+│    """Fetch a single record from the database."""
+⋮...
+│@logger.instrument
+│def fetch_all(query: str, params: dict) -> list[dict]:
+│    """Fetch multiple records from the database."""
+⋮...
+│@logger.instrument
+│def execute(query: str, params: dict | None, return_row: bool = False):
+│    """Execute a query that modifies the database."""
+⋮...
+│class Lock:
+│    """
+│    Use Postgres advisory locks to ensure that only a single workflow with this id is running at a time.
+│    # ref: https://github.com/seankerr/py-postgresql-lock/
+│    """
+│
+│    def __init__(self, lock_key: t.Any):
+⋮...
+│    def acquire(self):
+⋮...
+│    def release(self):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/providers/supabase/queries.py
+---
+│import json
+│import typing as t
+│
+│from pipelines.packages import logger
+│from pipelines.packages.providers.supabase.client import execute, fetch_all, fetch_one
+│
+⋮...
+│@logger.instrument
+│def sources_fetch_record(org_slug: str, provider: str) -> dict:
+│    """Fetches record for the specified integration for the customer from Gestalt
+│    database, in the format supplied by the corresponding auth method.
+│    """
+⋮...
+│@logger.instrument
+│def population_schemas_add_record(org_slug: str, snapshot: int, attributes: t.Any):
+⋮...
+│@logger.instrument
+│def population_schemas_fetch_record(org_slug: str, snapshot: int) -> dict:
+⋮...
+│@logger.instrument
+│def population_schemas_delete_record(org_slug: str, snapshot: int):
+⋮...
+│@logger.instrument
+│def censuses_add_record(org_slug: str, snapshot: int):
+⋮...
+│@logger.instrument
+│def censuses_fetch_record(org_slug: str, snapshot: int) -> dict:
+⋮...
+│@logger.instrument
+│def censuses_fetch_last_record(org_slug: str) -> dict:
+⋮...
+│@logger.instrument
+│def censuses_fetch_all_records(org_slug: str) -> list[dict]:
+⋮...
+│@logger.instrument
+│def censuses_delete_record(org_slug: str, snapshot: int):
+⋮...
+│@logger.instrument
+│def managed_accounts_add_record(org_slug: str, md_token: str):
+⋮...
+│@logger.instrument
+│def managed_accounts_fetch_record(org_slug: str) -> dict:
+⋮...
+│@logger.instrument
+│def managed_accounts_delete_record(org_slug: str):
+⋮...
+│@logger.instrument
+│def locus_accounts_add_record(org_slug: str, md_token: str):
+⋮...
+│@logger.instrument
+│def locus_accounts_fetch_record(org_slug: str) -> dict:
+⋮...
+│@logger.instrument
+│def locus_accounts_delete_record(org_slug: str):
+⋮...
+│class KVStore:
+│    @classmethod
+│    def create(cls):
+│        q_kvstore_ddl = """
+│        CREATE TABLE IF NOT EXISTS workflows.kv_store (
+│            key JSONB PRIMARY KEY,
+│            value JSONB
+│        );
+│        CREATE INDEX IF NOT EXISTS idx_kv_store_gin ON workflows.kv_store USING GIN (key);
+│        """
+│
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def set(cls, key: dict, value: t.Any):
+│        """Set a key-value pair, updating the value if the key already exists."""
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def get_exact(cls, key: dict) -> t.Any:
+│        """Get the value for a given key."""
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def get_partial(cls, partial_key: dict) -> list[dict]:
+│        """Get all key-value pairs matching a partial key."""
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def delete_exact(cls, key: dict):
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def delete_partial(cls, partial_key: dict):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/dimensionality_reduction/__init__.py
+---
+│"""
+│Routines for dimensionality reduction, and corresponding parameter classes.
+│
+│NOTE: Default values are set to the defaults from the RapidsAI cuml library.
+│"""
+│
+│from .pca import PCAParams
+│from .tsne import TSNEParams
+│from .umap import UMAPParams
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/dimensionality_reduction/base.py
+---
+│import typing as t
+│
+│from pydantic import BaseModel, Field
+│
+⋮...
+│class BaseReduceParams(BaseModel):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/dimensionality_reduction/pca.py
+---
+│import typing as t
+│
+│import numpy as np
+│
+│from pipelines.packages.constants import DEFAULT_RANDOM_SEED
+│from pipelines.packages.dimensionality_reduction.base import BaseReduceParams
+│
+⋮...
+│class PCAParams(BaseReduceParams):
+│    algorithm: t.Literal["PCA"] = "PCA"
+│
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        """
+│        Run PCA on the input data.
+│        """
+│        from sklearn.decomposition import PCA
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        """
+│        Run PCA on the input data using GPU.
+│        """
+│        import cuml  # type: ignore
+│        from cuml.decomposition import PCA  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/dimensionality_reduction/tsne.py
+---
+│import typing as t
+│
+│import numpy as np
+│from pydantic import Field
+│
+│from pipelines.packages.constants import DEFAULT_RANDOM_SEED
+│from pipelines.packages.dimensionality_reduction.base import BaseReduceParams
+│
+⋮...
+│class TSNEParams(BaseReduceParams):
+│    algorithm: t.Literal["TSNE"] = "TSNE"
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        from sklearn.manifold import TSNE
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        import cuml  # type: ignore
+│        from cuml.manifold import TSNE  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/dimensionality_reduction/umap.py
+---
+│import typing as t
+│
+│import numpy as np
+│from pydantic import Field
+│
+│from pipelines.packages.constants import DEFAULT_RANDOM_SEED
+│from pipelines.packages.dimensionality_reduction.base import BaseReduceParams
+│
+⋮...
+│class UMAPParams(BaseReduceParams):
+│    algorithm: t.Literal["UMAP"] = "UMAP"
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        import umap
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        import cuml  # type: ignore
+│        from cuml.manifold import UMAP  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/__init__.py
+---
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/destinations.py
+---
+│"""DLT destinations for the Extract + Load pipelines.
+│
+│Currently, we only support databases created for each customer in Gestalt's Snowflake account.
+│"""
+│
+│import typing as t
+│
+│from dlt.common.destination import Destination
+│from dlt.destinations import duckdb, motherduck
+│
+⋮...
+│def make_dlt_destination(credentials: MOTHERDUCK_CREDENTIALS) -> Destination:
+│    """Create the destination configuration for Motherduck.
+│
+│    We don't really need a wrapper, but this is to standardize the arguments we
+│    want to pass to the DLT object.
+│    """
+⋮...
+│def make_test_dlt_destination(credentials: t.Any = None) -> Destination:
+│    """Create the destination configuration for DuckDB."""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/extract.py
+---
+│import os
+│import shutil
+│import typing as t
+│
+│import dlt
+│import dlt.extract
+│from dlt.common.destination import Destination
+│
+│from pipelines.packages import logger
+│from pipelines.packages.common import map_source_to_destination_schema
+│
+│from .utils import set_temp_dlt_config
+│
+⋮...
+│@logger.instrument
+│def _create_pipeline(
+│    org_slug: str, source: "dlt.extract.DltSource", destination: "Destination"
+⋮...
+│@logger.instrument
+│def run(org_slug: str, source: "dlt.extract.DltSource", destination: "Destination"):
+│    """Executes a pipeline that will load the specified data source beginning at the given start date.
+│
+│    Args:
+│        org_slug: The organization ID to which the data belongs. Not essential outside identifying logs
+│            when running for multiple organizations.
+│        source: The data source configuration.
+│        destination: The DLT destination object.
+│    """
+│
+⋮...
+│@logger.instrument
+│def reset(org_slug: str, source: "dlt.extract.DltSource", destination: "Destination"):
+│    """Resets the extract-load pipeline for the specified data source. Drops all the
+│    resources associated with the pipeline at the destination.
+│
+│    Args:
+│        org_slug: The organization ID to which the data belongs. Not essential outside identifying logs
+│            when running for multiple organizations.
+│        source: The data source configuration.
+│        destination: The DLT destination object.
+│    """
+│
+│    from dlt.pipeline.helpers import drop
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/utils.py
+---
+│from contextlib import contextmanager
+│
+│import dlt
+│
+⋮...
+│@contextmanager
+│def set_temp_dlt_config(config_dict):
+│    """Context manager to temporarily set the values of the given config keys
+│    in dlt.config.
+│    """
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/transform/common.py
+---
+│import dataclasses
+│import re
+│import typing as t
+│
+│import sqlglot as sql
+│from sqlglot import exp
+│
+│from pipelines.packages.constants import AttributeType
+│
+⋮...
+│@dataclasses.dataclass
+│class ContainerType:
+⋮...
+│class ListType(ContainerType):
+⋮...
+│def parse_column_type(text: str):
+⋮...
+│@dataclasses.dataclass
+│class ColumnSpec:
+│    defn: str
+⋮...
+│    def __post_init__(self):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/transform/extensions.py
+---
+│import typing as t
+│
+│import polars as pl
+│
+│from pipelines.packages import logger
+│from pipelines.packages.etl.transform.common import AttributeType, ColumnType
+│
+⋮...
+│class Extension(t.Protocol):
+│    def type_(self) -> list[ColumnType]: ...
+│
+│    def metadata(self) -> list[dict]: ...
+│
+│    def compute(self, ds: "pl.DataFrame") -> "pl.DataFrame": ...
+│
+⋮...
+│class Gender(Extension):
+│    def type_(self):
+⋮...
+│    def metadata(self):
+⋮...
+│    def compute(self, ds: "pl.DataFrame"):
+│        from pipelines.apps.enrichments.gender.client import compute_gender
+│
+⋮...
+│class Census:
+│    def type_(self):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/transform/features.py
+---
+│import typing as t
+│from datetime import datetime
+│
+│import duckdb
+│import more_itertools
+│import numpy as np
+│import pandas as pd
+│from sklearn.preprocessing import OrdinalEncoder, RobustScaler
+│from sqlglot import exp
+│from sqlmesh import ExecutionContext, model
+│from sqlmesh.core.model.kind import ModelKindName
+│
+│from pipelines.apps.enrichments.embeddings.client import compute_embeddings
+│from pipelines.packages import logger
+│from pipelines.packages.dimensionality_reduction.pca import PCAParams
+│from pipelines.packages.etl.transform.external.census import (
+│    COL_PERSON_ID,
+│    FeatureOp,
+│    fetch_column_types_and_comments,
+│    make_features_spec_from_attributes_model,
+│)
+│
+⋮...
+│@model(
+│    "GESTALT.FEATURES",
+│    kind={"name": ModelKindName.FULL},
+│    depends_on=None,  # Because the attributes model lives in a different database
+│    columns={row["output_col"]: row["sql_type"] for row in OUTPUT_MODEL_INFO},
+│    column_descriptions={
+│        row["output_col"]: row["comment"] for row in OUTPUT_MODEL_INFO
+│    },
+│)
+│def execute(
+│    context: ExecutionContext,
+│    start: datetime,
+│    end: datetime,
+│    execution_time: datetime,
+│    **kwargs: t.Any,
+│):
+│    """Entrypoint for the SQLMesh model."""
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/transform/external/census.py
+---
+│import importlib
+│import itertools
+│import typing as t
+│from enum import Flag, auto
+│
+│import duckdb
+│import sqlglot as sql
+│from sqlglot import exp
+│
+│from pipelines.packages import logger
+│from pipelines.packages.constants import (
+│    COL_PERSON_ID,
+│    SUFFIX_SEP,
+│    AttributeType,
+│    DataSource,
+│)
+│from pipelines.packages.etl.transform.common import (
+│    ColumnSpec,
+│    ColumnType,
+│    ListType,
+│)
+│from pipelines.packages.providers.motherduck import make_motherduck_conn
+│
+⋮...
+│class StatisticsOp(Flag):
+⋮...
+│def _get_aggregate_ops_for_attr_type(nested_type: ColumnType) -> list[StatisticsOp]:
+⋮...
+│def _exp_quantile(expr: exp.Expression, quantile: float) -> exp.Expression:
+⋮...
+│def _exp_datetime_to_epoch(expr: exp.Expression) -> exp.Expression:
+⋮...
+│def _exp_epoch_to_datetime(expr: exp.Expression) -> exp.Expression:
+⋮...
+│def _fix_numerical_op_for_temporal_types(
+│    expr: exp.Expression | str, col_name: str, temporal_output: bool = False
+│) -> exp.Expression:
+│    if isinstance(expr, str):
+⋮...
+│    def _transform(node):
+⋮...
+│def get_attributes_from_source_query(
+│    source_query: str, id_column, columns: list[ColumnSpec]
+│):
+│    """Construct a query to compute all columns for the given source."""
+│
+⋮...
+│def get_census_columns_for_source(source: "DataSource"):
+│    """Get the columns for the given source."""
+│
+⋮...
+│def get_census_query_for_source(source: "DataSource"):
+│    """Create the census table for the given source."""
+│
+⋮...
+│def run_for_source(db_credentials: dict, source: "DataSource"):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/transform/external/shopify.py
+---
+│from pipelines.packages.constants import COL_PERSON_ID
+│from pipelines.packages.etl.transform.external.census import ColumnSpec
+│
+⋮...
+│def _get_columns_customers():
+⋮...
+│def _get_columns_customer_addresses():
+⋮...
+│def _get_columns_customer_orders():
+⋮...
+│def _get_columns_customers_orders_products():
+⋮...
+│def get_all_columns():
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/__init__.py
+---
+│from .base import GestaltDataSource
+│from .shopify import ShopifySource
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/base.py
+---
+│import typing as t
+│
+│if t.TYPE_CHECKING:
+│    import dlt
+│    import dlt.extract
+│
+⋮...
+│class GestaltDataSource(t.Protocol):
+│    """Type definition for the data source configuration."""
+│
+⋮...
+│    @staticmethod
+│    def make_dlt_credentials(data: dict) -> dict[str, t.Any]:
+│        """Convert the given data to the credentials required by the DLT data source.
+│
+│        This is needed since credentials obtained by authenticating with the SaaS provider
+│        might have different attributes than those required by the DLT data source.
+│        """
+│
+⋮...
+│    def make_dlt_source(self) -> "dlt.extract.DltSource":
+│        """Create the DLT data source object using the credentials and other configuration."""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/shopify/__init__.py
+---
+│"""Specification for the Shopify data source."""
+│
+│import typing as t
+│
+│import dlt
+│import dlt.extract
+│import typing_extensions as te
+│from pydantic import BaseModel
+│
+│from .shopify_dlt import shopify_source
+│
+⋮...
+│class ShopifySource(BaseModel):
+│    """Specification for the Shopify data source."""
+│
+⋮...
+│    @staticmethod
+│    def make_dlt_credentials(data: dict) -> SHOPIFY_CREDENTIALS:
+⋮...
+│    def make_dlt_source(
+│        self, resources: list[str] | None = None
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/shopify/shopify_dlt/__init__.py
+---
+│"""Fetches Shopify Orders and Products."""
+│
+│from typing import Any, Dict, Iterable, Optional
+│
+│import dlt
+│from dlt.common import jsonpath as jp
+│from dlt.common import pendulum
+│from dlt.common.time import ensure_pendulum_datetime
+│from dlt.common.typing import TAnyDateTime, TDataItem
+│from dlt.sources import DltResource
+│
+│from .helpers import ShopifyApi, ShopifyPartnerApi, TOrderStatus
+│from .settings import (
+│    DEFAULT_API_VERSION,
+│    DEFAULT_ITEMS_PER_PAGE,
+│    DEFAULT_PARTNER_API_VERSION,
+│    FIRST_DAY_OF_MILLENNIUM,
+│)
+│
+⋮...
+│@dlt.source(name="shopify", max_table_nesting=0)
+│def shopify_source(
+│    private_app_password: str = dlt.secrets.value,
+│    api_version: str = DEFAULT_API_VERSION,
+│    shop_url: str = dlt.config.value,
+│    start_date: TAnyDateTime = FIRST_DAY_OF_MILLENNIUM,
+│    end_date: Optional[TAnyDateTime] = None,
+│    created_at_min: TAnyDateTime = FIRST_DAY_OF_MILLENNIUM,
+│    items_per_page: int = DEFAULT_ITEMS_PER_PAGE,
+│    order_status: TOrderStatus = "any",
+│) -> Iterable[DltResource]:
+│    """
+│    The source for the Shopify pipeline. Available resources are products, orders, and customers.
+│
+│    `start_time` argument can be used on its own or together with `end_time`. When both are provided
+│    data is limited to items updated in that time range.
+│    The range is "half-open", meaning elements equal and newer than `start_time` and elements older than `end_time` are included.
+│    All resources opt-in to use Airflow scheduler if run as Airflow task
+│
+│    Args:
+│        private_app_password: The app password to the app on your shop.
+│        api_version: The API version to use (e.g. 2023-01).
+│        shop_url: The URL of your shop (e.g. https://my-shop.myshopify.com).
+│        items_per_page: The max number of items to fetch per page. Defaults to 250.
+│        start_date: Items updated on or after this date are imported. Defaults to 2000-01-01.
+│            If end date is not provided, this is used as the initial value for incremental loading and after the initial run, only new data will be retrieved.
+│            Accepts any `date`/`datetime` object or a date/datetime string in ISO 8601 format.
+│        end_time: The end time of the range for which to load data.
+│            Should be used together with `start_date` to limit the data to items updated in that time range.
+│            If end time is not provided, the incremental loading will be enabled and after initial run, only new data will be retrieved
+│        created_at_min: The minimum creation date of items to import. Items created on or after this date are loaded. Defaults to 2000-01-01.
+│        order_status: The order status to filter by. Can be 'open', 'closed', 'cancelled', or 'any'. Defaults to 'any'.
+│
+│    Returns:
+│        Iterable[DltResource]: A list of DltResource objects representing the data resources.
+│    """
+│
+⋮...
+│    @dlt.resource(primary_key="id", write_disposition="merge")
+│    def products(
+│        updated_at: dlt.sources.incremental[
+│            pendulum.DateTime
+│        ] = dlt.sources.incremental(
+│            "updated_at",
+│            initial_value=start_date_obj,
+│            end_value=end_date_obj,
+│        ),
+│        created_at_min: pendulum.DateTime = created_at_min_obj,
+│        items_per_page: int = items_per_page,
+│    ) -> Iterable[TDataItem]:
+│        """
+│        The resource for products on your shop, supports incremental loading and pagination.
+│
+│        Args:
+│            updated_at: The saved state of the last 'updated_at' value.
+│
+│        Returns:
+│            Iterable[TDataItem]: A generator of products.
+│        """
+⋮...
+│    @dlt.resource(
+│        primary_key="id",
+│        merge_key="id",
+│        write_disposition="merge",
+│        columns={
+│            "current_subtotal_price": {"data_type": "double"},
+│            "current_total_discounts": {"data_type": "double"},
+│            "current_total_price": {"data_type": "double"},
+│            "current_total_tax": {"data_type": "double"},
+│            "subtotal_price": {"data_type": "double"},
+⋮...
+│    def orders(
+│        updated_at: dlt.sources.incremental[
+│            pendulum.DateTime
+│        ] = dlt.sources.incremental(
+│            "updated_at",
+│            initial_value=start_date_obj,
+│            end_value=end_date_obj,
+│        ),
+│        created_at_min: pendulum.DateTime = created_at_min_obj,
+│        items_per_page: int = items_per_page,
+⋮...
+│        """
+│        The resource for orders on your shop, supports incremental loading and pagination.
+│
+│        Args:
+│            updated_at: The saved state of the last 'updated_at' value.
+│
+│        Returns:
+│            Iterable[TDataItem]: A generator of orders.
+│        """
+⋮...
+│    @dlt.resource(
+│        primary_key="id",
+│        write_disposition="merge",
+│        columns={"total_spent": {"data_type": "double"}},
+│    )
+│    def customers(
+│        updated_at: dlt.sources.incremental[
+│            pendulum.DateTime
+│        ] = dlt.sources.incremental(
+│            "updated_at",
+│            initial_value=start_date_obj,
+│            end_value=end_date_obj,
+│        ),
+│        created_at_min: pendulum.DateTime = created_at_min_obj,
+│        items_per_page: int = items_per_page,
+│    ) -> Iterable[TDataItem]:
+│        """
+│        The resource for customers on your shop, supports incremental loading and pagination.
+│
+│        Args:
+│            updated_at: The saved state of the last 'updated_at' value.
+│
+│        Returns:
+│            Iterable[TDataItem]: A generator of customers.
+│        """
+⋮...
+│@dlt.resource
+│def shopify_partner_query(
+│    query: str,
+│    data_items_path: jp.TJsonPath,
+│    pagination_cursor_path: jp.TJsonPath,
+│    pagination_variable_name: str = "after",
+│    variables: Optional[Dict[str, Any]] = None,
+│    access_token: str = dlt.secrets.value,
+│    organization_id: str = dlt.config.value,
+│    api_version: str = DEFAULT_PARTNER_API_VERSION,
+│) -> Iterable[TDataItem]:
+│    """
+│    Resource for getting paginated results from the Shopify Partner GraphQL API.
+│
+│    This resource will run the given GraphQL query and extract a list of data items from the result.
+│    It will then run the query again with a pagination cursor to get the next page of results.
+│
+│    Example:
+│        query = '''query Transactions($after: String) {
+│            transactions(after: $after, first: 100) {
+│                edges {
+│                    cursor
+│                    node {
+│                        id
+│                    }
+│                }
+│            }
+│        }'''
+│
+│        partner_query_pages(
+│            query,
+│            data_items_path="data.transactions.edges[*].node",
+│            pagination_cursor_path="data.transactions.edges[-1].cursor",
+│            pagination_variable_name="after",
+│        )
+│
+│    Args:
+│        query: The GraphQL query to run.
+│        data_items_path: The JSONPath to the data items in the query result. Should resolve to array items.
+│        pagination_cursor_path: The JSONPath to the pagination cursor in the query result, will be piped to the next query via variables.
+│        pagination_variable_name: The name of the variable to pass the pagination cursor to.
+│        variables: Mapping of extra variables used in the query.
+│        access_token: The Partner API Client access token, created in the Partner Dashboard.
+│        organization_id: Your Organization ID, found in the Partner Dashboard.
+│        api_version: The API version to use (e.g. 2024-01). Use `unstable` for the latest version.
+│    Returns:
+│        Iterable[TDataItem]: A generator of the query results.
+│    """
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/shopify/shopify_dlt/exceptions.py
+---
+│class ShopifyPartnerApiError(Exception):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/shopify/shopify_dlt/helpers.py
+---
+│"""Shopify source helpers"""
+│from urllib.parse import urljoin
+│
+│from dlt.common.time import ensure_pendulum_datetime
+│from dlt.sources.helpers import requests
+│from dlt.common.typing import TDataItem, TDataItems, Dict, DictStrAny
+│from dlt.common import jsonpath
+│from typing import Any, Iterable, Optional, Literal
+│
+│from .settings import DEFAULT_API_VERSION, DEFAULT_PARTNER_API_VERSION
+│from .exceptions import ShopifyPartnerApiError
+│
+⋮...
+│class ShopifyApi:
+│    """
+│    A Shopify API client that can be used to get pages of data from Shopify.
+│    """
+│
+│    def __init__(
+│        self,
+│        shop_url: str,
+│        private_app_password: str,
+│        api_version: str = DEFAULT_API_VERSION,
+│    ) -> None:
+│        """
+│        Args:
+│            shop_url: The URL of your shop (e.g. https://my-shop.myshopify.com).
+│            private_app_password: The private app password to the app on your shop.
+│            api_version: The API version to use (e.g. 2023-01)
+│        """
+⋮...
+│    def get_pages(
+│        self, resource: str, params: Optional[Dict[str, Any]] = None
+│    ) -> Iterable[TDataItems]:
+│        """Get all pages from shopify using requests.
+│        Iterates through all pages and yield each page items.
+│
+│        Args:
+│            resource: The resource to get pages for (e.g. products, orders, customers).
+│            params: Query params to include in the request.
+│
+│        Yields:
+│            List of data items from the page
+│        """
+⋮...
+│    def _convert_datetime_fields(self, item: Dict[str, Any]) -> Dict[str, Any]:
+│        """Convert timestamp fields in the item to pendulum datetime objects
+│
+│        The item is modified in place.
+│
+│        Args:
+│            item: The item to convert
+│
+│        Returns:
+│            The same data item (for convenience)
+│        """
+⋮...
+│class ShopifyPartnerApi:
+│    """Client for Shopify Partner grapql API"""
+│
+│    def __init__(
+│        self,
+│        access_token: str,
+│        organization_id: str,
+│        api_version: str = DEFAULT_PARTNER_API_VERSION,
+│    ) -> None:
+│        """
+│        Args:
+│            access_token: The access token to use
+│            organization_id: The organization id to query
+│            api_version: The API version to use (e.g. 2023-01)
+│        """
+⋮...
+│    @property
+│    def graphql_url(self) -> str:
+⋮...
+│    def run_graphql_query(
+│        self, query: str, variables: Optional[DictStrAny] = None
+│    ) -> DictStrAny:
+│        """Run a graphql query against the Shopify Partner API
+│
+│        Args:
+│            query: The query to run
+│            variables: The variables to include in the query
+│
+│        Returns:
+│            The response JSON
+│        """
+⋮...
+│    def get_graphql_pages(
+│        self,
+│        query: str,
+│        data_items_path: jsonpath.TJsonPath,
+│        pagination_cursor_path: jsonpath.TJsonPath,
+│        pagination_variable_name: str,
+│        variables: Optional[DictStrAny] = None,
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/etl/sources/shopify/shopify_dlt/settings.py
+---
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/__init__.py
+---
+│"""Routines for clustering, and corresponding parameter classes.
+│
+│NOTE: Default values are set to the defaults from the RapidsAI cuml library.
+│"""
+│
+│from .dbscan import DBSCANParams
+│from .gmm import GMMParams
+│from .hdbscan import HDBSCANParams
+│from .hierarchical import HierarchicalParams
+│from .k_means import KMeansParams
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/base.py
+---
+│from pydantic import BaseModel
+│
+⋮...
+│class BaseClusterParams(BaseModel): ...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/dbscan.py
+---
+│# TODO: also hdbscan
+│
+│import typing as t
+│
+│import numpy as np
+│from pydantic import ConfigDict, Field
+│
+│from pipelines.packages.clustering.base import BaseClusterParams
+│
+│class DBSCANParams(BaseClusterParams):
+│    model_config = ConfigDict(extra="forbid")
+│
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        from sklearn.cluster import DBSCAN
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        import cuml  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/gmm.py
+---
+│import typing as t
+│
+│import numpy as np
+│from pydantic import ConfigDict, Field
+│
+│from pipelines.packages.clustering.base import BaseClusterParams
+│from pipelines.packages.constants import DEFAULT_RANDOM_SEED
+│
+⋮...
+│class GMMParams(BaseClusterParams):
+│    model_config = ConfigDict(extra="forbid")
+│
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        from sklearn.mixture import GaussianMixture
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        """A GPU-accelerated version doesn't exist in cuml, redirecting to CPU"""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/hdbscan.py
+---
+│import typing as t
+│
+│import numpy as np
+│from pydantic import ConfigDict, Field
+│
+│from pipelines.packages.clustering.base import BaseClusterParams
+│
+⋮...
+│class HDBSCANParams(BaseClusterParams):
+│    model_config = ConfigDict(extra="forbid")
+│
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        import hdbscan
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        import cuml  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/hierarchical.py
+---
+│import typing as t
+│
+│import numpy as np
+│from pydantic import ConfigDict, Field
+│
+│from pipelines.packages.clustering.base import BaseClusterParams
+│
+⋮...
+│class HierarchicalParams(BaseClusterParams):
+│    model_config = ConfigDict(extra="forbid")
+│
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        from sklearn.cluster import AgglomerativeClustering
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        import cuml  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/packages/clustering/k_means.py
+---
+│import typing as t
+│
+│import numpy as np
+│from pydantic import Field
+│
+│from pipelines.packages.clustering.base import BaseClusterParams
+│from pipelines.packages.constants import DEFAULT_RANDOM_SEED
+│
+⋮...
+│class KMeansParams(BaseClusterParams):
+│    clusters: int = Field(..., ge=1, le=20)
+│
+⋮...
+│    def run_cpu(self, data: np.ndarray) -> np.ndarray:
+│        from sklearn.cluster import KMeans
+│
+⋮...
+│    def run_gpu(self, data: np.ndarray) -> np.ndarray:
+│        import cuml  # type: ignore
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/persons/_query.py
+---
+│"""FastAPI app to query customer profiles."""
+│
+│import functools
+│import hashlib
+│import typing as t
+│
+│import duckdb
+│import fastapi
+│import pyarrow as pa
+│from fastapi import Depends
+│from pydantic import BaseModel
+│from sqlglot import exp, parse_one
+│
+│from pipelines.packages import app_types, logger
+│from pipelines.packages.common import (
+│    DestinationType,
+│    arrow_batch_buffers_generator,
+│    make_org_database_name,
+│)
+│from pipelines.packages.constants import COL_PERSON_ID, MissingRecordError
+│from pipelines.packages.providers import modal as modal_utils
+│from pipelines.packages.providers.motherduck import query_connection
+│from pipelines.packages.providers.motherduck.utils import get_motherduck_conn_locus
+│from pipelines.packages.providers.supabase import queries as app_queries
+│
+⋮...
+│class SchemaInput(BaseModel):
+⋮...
+│def _replace_table_refs(query: str, org_slug: str, snapshot: int):
+│    """Replace table references in the frontend query with the actual tables backing them."""
+│
+⋮...
+│    def _replace_tables(node):
+⋮...
+│def _cast_result(result: "pa.Table", return_format: str) -> t.Any:
+⋮...
+│class InMemoryCache:
+│    """Caches MD queries in process memory."""
+│
+⋮...
+│    def __init__(self):
+⋮...
+│    def get(self, key: str) -> "pa.Table | None":
+⋮...
+│    def put(self, key: str, value: "pa.Table"):
+⋮...
+│class QueryCacheMD:
+│    """Caches MD queries in process memory.
+│
+│    Tables we create locally are cached both in memory and persisted in Motherduck.
+│    """
+│
+⋮...
+│    @classmethod
+│    def get_table_name(cls, org_slug: str, snapshot: int, key: str) -> str:
+│        """Get the full table name for the cache entry."""
+│
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def put_persistent_table(cls, org_slug: str, table_name: str, value: pa.Table):
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def get_persistent_table(cls, org_slug: str, table_name: str) -> "pa.Table | None":
+⋮...
+│    @classmethod
+⋮...
+│    def query(cls, org_slug: str, query_str: str):
+│        """Query MD and cache the result locally.
+│
+│        NOTE: The query string contains references to the exact database.
+│        """
+⋮...
+│    @classmethod
+│    @logger.instrument
+│    def clear_cache(cls, org_slug: str, snapshot: int):
+│        """Clear the cache for the specified org, and snapshot."""
+│
+⋮...
+│@logger.instrument
+│def _query_features(population: app_types.Population, org_slug: str):
+│    """
+│    NOTE: Refactored as a separate function, since we reuse this function in the constellation app.
+│    """
+│
+⋮...
+│@logger.instrument
+│def _query_attributes(population: app_types.Population, org_slug: str):
+⋮...
+│@app.post("/warm-up")
+│@logger.instrument
+│def warmup(org_slug: str = Depends(modal_utils.read_org_slug_from_request)):
+│    """Warm up the connection to the Motherduck database.
+│    Returns the number of seconds until it'll cooldown.
+│    """
+│
+⋮...
+│@app.post("/describe-schema")
+│@logger.instrument
+│def describe_schema(
+│    body: SchemaInput, org_slug: str = Depends(modal_utils.read_org_slug_from_request)
+│):
+│    """Describe the schema of the customer attributes."""
+│
+⋮...
+│@app.post("/query-attributes")
+│@logger.instrument
+│def query_attributes(
+│    body: app_types.Population,
+│    org_slug: str = Depends(modal_utils.read_org_slug_from_request),
+│):
+│    """Query the customer aggregated attributes."""
+│
+⋮...
+│@app.post("/query-features")
+│@logger.instrument
+│def query_features(
+│    body: app_types.Population,
+│    org_slug: str = Depends(modal_utils.read_org_slug_from_request),
+│):
+│    """Query features."""
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/persons/main.py
+---
+│import modal
+│
+│from pipelines.apps.persons._query import app as web_app
+│from pipelines.packages import constants
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│@app.function(timeout=3600, concurrency_limit=4)
+│@modal.asgi_app(label="persons")
+│def main():
+│    """Entrypoint for the `persons` app."""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/censusdata.py
+---
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/embeddings/client.py
+---
+│"""
+│Use the endpoint deployed on Modal to query embeddings for a batch of documents.
+│"""
+│
+│import os
+│import typing as t
+│
+│import numpy as np
+│
+│from pipelines.packages import logger
+│from pipelines.packages.common import http_batch_requests, run_async
+│from pipelines.packages.constants import (
+│    MODAL_APP_URL_EMBEDDINGS,
+│    MODAL_APP_URL_EMBEDDINGS_W_CACHE,
+│)
+│
+⋮...
+│def compute(docs: t.Sequence[str], use_cache: bool = False) -> np.ndarray:
+│    """Create embeddings for a batch of documents."""
+│
+⋮...
+│def compute_embeddings(*args, **kwargs):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/embeddings/main.py
+---
+│"""Uses Huggingface's text-embeddings-inference to embed text documents.
+│
+│Also, sets up a cached endpoint to store/retrieve embeddings for docs it has
+│already seen.
+│"""
+│
+│import hashlib
+│import os
+│import socket
+│import sqlite3
+│import struct
+│import subprocess
+│
+│import fastapi
+│import httpx
+│import modal
+│import pydantic
+│
+│from pipelines.packages import constants
+│from pipelines.packages.constants import (
+│    MODAL_APP_URL_EMBEDDINGS,
+│    MODAL_UTIL_DEPENDENCIES,
+│)
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│class RequestBody(pydantic.BaseModel):
+⋮...
+│def spawn_server() -> subprocess.Popen:
+⋮...
+│def download_model():
+⋮...
+│@app.cls(gpu=GPU_CONFIG, image=img, allow_concurrent_inputs=True, concurrency_limit=2)
+│class Main:
+│    @modal.enter()
+│    def setup_server(self):
+│        import httpx
+│
+│        self.process = spawn_server()
+⋮...
+│    @modal.exit()
+│    def teardown_server(self):
+⋮...
+│    @modal.asgi_app(label="embeddings")
+│    def web_app(self):
+│        _fastapi_app = fastapi.FastAPI()
+⋮...
+│        @_fastapi_app.post("/")
+│        async def compute(docs_input: RequestBody) -> list[list[float]]:
+⋮...
+│def hash_document(doc: str) -> str:
+⋮...
+│def encode_embedding(values):
+⋮...
+│def decode_embedding(blob):
+⋮...
+│@app.cls(
+│    image=img2,
+│    concurrency_limit=1,
+│    allow_concurrent_inputs=True,
+│    volumes={"/vol/cache": vol2},
+│)
+│class Main2:
+│    @modal.enter()
+│    def setup_db(self):
+│        self.db_conn = sqlite3.connect("/vol/cache/embeddings.db")
+│        self.db_conn.execute("PRAGMA journal_mode=WAL")
+│        self.db_conn.execute(
+│            """
+│            CREATE TABLE IF NOT EXISTS embeddings (
+│                doc_hash TEXT PRIMARY KEY,
+│                embedding BLOB
+│            )
+⋮...
+│    @modal.exit()
+│    def teardown_db(self):
+⋮...
+│    @modal.asgi_app(label="embeddings-w-cache")
+│    def web_app(self):
+│        _fastapi_app = fastapi.FastAPI()
+⋮...
+│        @_fastapi_app.post("/")
+│        async def fetch_or_gen(docs_input: RequestBody) -> list[list[float]]:
+│            """
+│            - look into the duckdb cache for embeddings for these documents first.
+│            - documents can be long, so maybe we should hash them? Need a persistent hash function.
+│            - if not found, call the embeddings endpoint to generate them, store them, and return them.
+│            """
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/client.py
+---
+│"""Use the endpoint deployed on Modal to predict gender for a batch of names."""
+│
+│import os
+│
+│from pipelines.packages import logger
+│from pipelines.packages.common import http_batch_requests, run_async
+│from pipelines.packages.constants import MODAL_APP_URL_ENRICHMENT_GENDER
+│
+⋮...
+│def compute(names: list[str]) -> list[str | None]:
+│    """Predict gender for a batch of names."""
+│
+⋮...
+│def compute_gender(*args, **kwargs):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/main.py
+---
+│import fastapi
+│import modal
+│import pydantic
+│
+│from pipelines.packages import constants
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│class RequestBody(pydantic.BaseModel):
+⋮...
+│@web_app.post("/compute")
+│def predict_gender(body: RequestBody):
+│    from pipelines.apps.enrichments.gender.genderComputer import GenderComputer
+│
+⋮...
+│@app.function(concurrency_limit=2, container_idle_timeout=30)
+│@modal.asgi_app(label="enrichments-gender")
+│def main():
+│    """Entrypoint for the `enrichments-gender` app."""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/__init__.py
+---
+│from .genderComputer import GenderComputer
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/dictUtils.py
+---
+│"""Copyright 2012-2013
+│Eindhoven University of Technology
+│Bogdan Vasilescu
+│
+│This program is free software: you can redistribute it and/or modify
+│it under the terms of the GNU Lesser General Public License as published by
+│the Free Software Foundation, either version 3 of the License, or
+│(at your option) any later version.
+│
+│This program is distributed in the hope that it will be useful,
+│but WITHOUT ANY WARRANTY; without even the implied warranty of
+│MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+│GNU Lesser General Public License for more details.
+│
+│You should have received a copy of the GNU Lesser General Public License
+│along with this program.  If not, see <http://www.gnu.org/licenses/>."""
+│
+⋮...
+│import pickle
+│
+⋮...
+│def isList(obj):
+│    """isList(obj) -> Returns true if obj is a Python list.
+│
+│    This function does not return true if the object supplied
+│    is a UserList object.
+│    """
+⋮...
+│def isTuple(obj):
+│    "isTuple(obj) -> Returns true if obj is a Python tuple."
+⋮...
+│def isPySeq(obj):
+│    """isPySeq(obj) -> Returns true if obj is a Python list or a Python tuple.
+│
+│    This function does not return true if the object supplied is
+│    a UserList object.
+│    """
+⋮...
+│def isLongString(obj):
+│    """isLongString(obj) -> Returns true if obj is a string of a size larger than 1.
+│
+│    This function does not return true if the object supplied is
+│    a UserString object.
+│    """
+⋮...
+│class MyDict:
+│    def __init__(self, path=None, encod=None):
+│        self.data = {}
+│        if path is not None:
+│            import json
+│
+│            with open(path, "r") as f:
+│                self.data = json.loads(f.read())
+│
+│            # fdict = open(path, "rb")
+│            # if encod is not None:
+⋮...
+│    def update(self, dictionary=None):
+⋮...
+│    def keys(self):
+⋮...
+│    def items(self):
+⋮...
+│    def values(self):
+⋮...
+│    def append(self, key, value):
+⋮...
+│    def save(self, path):
+⋮...
+│    def saveAsCSV(self, path):
+⋮...
+│    def __getitem__(self, key):
+⋮...
+│    def __setitem__(self, key, item):
+⋮...
+│    def get_key(self, value):
+│        """find the key(s) as a list given a value"""
+⋮...
+│    def get_value(self, key):
+│        """find the value given a key"""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/filters.py
+---
+│"""Copyright 2012-2013
+│Eindhoven University of Technology
+│Bogdan Vasilescu
+│
+│This program is free software: you can redistribute it and/or modify
+│it under the terms of the GNU Lesser General Public License as published by
+│the Free Software Foundation, either version 3 of the License, or
+│(at your option) any later version.
+│
+│This program is distributed in the hope that it will be useful,
+│but WITHOUT ANY WARRANTY; without even the implied warranty of
+│MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+│GNU Lesser General Public License for more details.
+│
+│You should have received a copy of the GNU Lesser General Public License
+│along with this program.  If not, see <http://www.gnu.org/licenses/>."""
+│
+⋮...
+│def normaliseCountryName(country):
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/genderComputer.py
+---
+│#!/usr/bin/env python3
+⋮...
+│import csv
+│import json
+│import os
+│import re
+│
+│from unidecode import unidecode
+│
+│from .dictUtils import MyDict
+│from .filters import normaliseCountryName
+│from .nameUtils import (
+│    extractFirstName,
+│    inverseNameParts,
+│    leet2eng,
+│    only_cyrillic_chars,
+│    only_greek_chars,
+│)
+│
+⋮...
+│def simplifiedGender(gender):
+⋮...
+│def formatOutput(gender, simplified=True):
+⋮...
+│class GenderComputer:
+│    def __init__(self, nameListsPath=None):
+│        """Data path"""
+│        if nameListsPath:
+│            self.dataPath = os.path.abspath(nameListsPath)
+│        else:
+│            self.dataPath = os.path.join(os.path.dirname(__file__), "nameLists")
+│
+│        """gender.c, already lowercase"""
+│        self.genderDict = MyDict(os.path.join(self.dataPath, "gender_dict.json"))
+│
+│        """Order of countries (columns) in the 
+│		nam_dict.txt file shipped together with gender.c"""
+⋮...
+│        """Name lists per country"""
+⋮...
+│        """Exceptions (approximations)"""
+⋮...
+│        """Black list of first names"""
+⋮...
+│        """Gender-specific words"""
+⋮...
+│        """Suffixes"""
+⋮...
+│        """in/yn excluded due to B-Rain and Earwin"""
+⋮...
+│        """['Iakov','Jakov','Yakov','dev','Dev','Lev','boy','Boy','toy','Toy']"""
+⋮...
+│        """-ska is not included because of Polska = Poland which might be confusing"""
+⋮...
+│        """Male Latvian personal and family names typically end in  -s (-š). Some may be derived 
+│		from Russian names, with an -s ending: e.g. Vladislavs KAZANOVS
+│		Only Russian forms are included since we cannot distinguish between the regular Latvian -s and English plural -s"""
+│
+⋮...
+│        """All inverse order countries should also be checked for direct order"""
+⋮...
+│        """Diminutives list"""
+⋮...
+│        """Distribution of StackOverflow users per different countries"""
+⋮...
+│    """Look <firstName> (and potentially its diminutives) up for <country>.
+│	Decide gender based on frequency."""
+│
+│    def frequencyBasedLookup(self, firstName, country, withDiminutives=False):
+⋮...
+│    """Wrapper for <frequencyBasedLookup> that checks if data for the query <country>
+│	exists; can format the output."""
+│
+│    def countryLookup(self, firstName, country, withDiminutives, simplified=True):
+⋮...
+│    """Checks whether a given <fullName> for a given <country>
+│	is <gender> (male/female)."""
+│
+│    def checkSuffix(self, fullName, country, gender):
+⋮...
+│    """Given <fullName>, checks both male and female 
+│	name suffixes and infers gender for <country>."""
+│
+│    def suffixLookup(self, fullName, country):
+⋮...
+│    """Search for a given <firstName> in the gender.c database.
+│	strict=True 	: look only in <country>
+│	simplified=True : reduce 'mostly male' to 'male' and 'mostly female' to 'female' """
+│
+│    def genderDotCLookup(self, firstName, country, strict=True, simplified=True):
+│        gender = None
+⋮...
+│        try:
+│            """Name in dictionary"""
+⋮...
+│            def lab2key(lab):
+⋮...
+│    """Simple check for gender-specific words (e.g., girl)"""
+│
+│    def initialCheck(self, firstName):
+⋮...
+│    """'Try to resolve gender based on <firstName>.
+│	Restrict search to a given <country>."""
+│
+│    def resolveFirstName(self, firstName, country, withDiminutives):
+│        """Start with easy checks. If successful
+│        then return gender directly, otherwise continue"""
+⋮...
+│        """If I have a list for that country, start with it"""
+⋮...
+│        """Try gender.c next (strict mode = country-dependent)"""
+⋮...
+│    """'Try to resolve gender based on <firstName>.
+│	Look in all countries and resort to arbitrage."""
+│
+│    def resolveFirstNameOverall(self, firstName, withDiminutives):
+│        """Start with easy checks. If successful
+│        then return gender directly, otherwise continue"""
+⋮...
+│        """Try each available country list in turn,
+│		and record frequency information."""
+⋮...
+│        """Keep the gender with the highest total count
+│		(frequency) aggregated across all countries."""
+⋮...
+│        """I might have the name in gender.c, but for a different country"""
+⋮...
+│    """Main gender resolution function. Process:
+│	- if name is written in Cyrillic or Greek, transliterate
+│	- if country in {Russia, Belarus, ...}, check suffix
+│		* name might be inversed, so also try inverse if direct fails
+│	- extract first name and try to resolve
+│		* name might be inversed, so also try inverse if direct fails
+│	- assume name is in fact username, and try different tricks:
+│		* if country in {The Netherlands, ..}, look for vd, van, ..
+│		* try to guess name from vbogdan and bogdanv
+│	- if still nothing, inverse and try first name again (maybe country was empty)"""
+│
+│    def resolveGender(self, name, country):
+│        """Check if name is written in Cyrillic or Greek script, and transliterate"""
+⋮...
+│        """Initial check for gender-specific words at the beginning of the name"""
+⋮...
+│        """Extract first name from name string"""
+⋮...
+│        """If everything failed, try cross-country"""
+⋮...
+│        """Try also unidecoded version"""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/genderc_python.py
+---
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/nameUtils.py
+---
+│"""Copyright 2012-2013
+│Eindhoven University of Technology
+│Bogdan Vasilescu
+│
+│This program is free software: you can redistribute it and/or modify
+│it under the terms of the GNU Lesser General Public License as published by
+│the Free Software Foundation, either version 3 of the License, or
+│(at your option) any later version.
+│
+│This program is distributed in the hope that it will be useful,
+│but WITHOUT ANY WARRANTY; without even the implied warranty of
+│MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+│GNU Lesser General Public License for more details.
+│
+│You should have received a copy of the GNU Lesser General Public License
+│along with this program.  If not, see <http://www.gnu.org/licenses/>."""
+│
+│from nameparser import HumanName
+│import re
+│
+⋮...
+│def convert1(name):
+⋮...
+│def splitCamelCase(name):
+⋮...
+│def inverseNameParts(name):
+⋮...
+│def leet2eng(text):
+⋮...
+│import unicodedata
+⋮...
+│def is_cyrillic(uchr):
+⋮...
+│def only_cyrillic_chars(unistr):
+⋮...
+│def is_greek(uchr):
+⋮...
+│def only_greek_chars(unistr):
+⋮...
+│def getFirstNameFromHumanName(humanName, order):
+⋮...
+│def getFirstNameFromSplitName(splitName, order):
+⋮...
+│def extractFirstName(name, order):
+│    '''Split on dots'''
+│    name = ' '.join(name.split('.'))
+│    '''Replace numbers by whitespace'''
+⋮...
+│    '''Use the Python name parser'''
+⋮...
+│    '''If fail, use heuristics'''
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/enrichments/gender/genderComputer/nameLists/__init__.py
+---
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/digest/main.py
+---
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/archetypes/_internal.py
+---
+│import asyncio
+│import collections
+│import typing as t
+│
+│import duckdb
+│import fastapi
+│import numpy as np
+│import pandas as pd
+│import pyarrow as pa
+│from pydantic import BaseModel, Field
+│
+│from pipelines.apps.persons import _query
+│from pipelines.packages import app_types, logger
+│from pipelines.packages.common import run_async
+│from pipelines.packages.constants import COL_PERSON_ID
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│class ArchetypesInput(BaseModel):
+⋮...
+│class Archetype(BaseModel):
+⋮...
+│@app.post("/archetypes/describe")
+│@logger.instrument
+│def describe_archetypes(
+│    body: ArchetypesInput,
+│    org_slug: str = fastapi.Depends(modal_utils.read_org_slug_from_request),
+│) -> t.List[Archetype]:
+│    """Generate semantic descriptions for clusters based on their most important features."""
+│
+⋮...
+│def _identify_important_features(
+│    data_population: pa.Table,
+│    data_clusters: pa.Table,
+│    num_select: int = 10,
+│) -> list[str]:
+│    """Identify the most important features for each cluster using a Random Forest classifier."""
+│
+│    from sklearn.decomposition import PCA
+│    from sklearn.ensemble import RandomForestClassifier
+│
+⋮...
+│def _get_cluster_summaries(
+│    data_attributes: "pa.Table",
+│    data_clusters: "pa.Table",
+│    important_features: list[str],
+│):
+│    """Get summary statistics for important features in each cluster using DuckDB's summarize function."""
+│
+│    def _get_cluster_data_summary(tbl_attributes, tbl_clusters, cluster_id: int):
+⋮...
+│async def _generate_single_description(
+│    cluster_id: int, summary: pd.DataFrame
+│) -> tuple[int, str]:
+│    """Generate a semantic description for a single cluster."""
+│
+│    from pipelines.packages.providers.litellm import litellm
+│
+⋮...
+│async def _generate_semantic_descriptions(
+│    cluster_summaries: t.Dict[int, pd.DataFrame],
+│) -> list["Archetype"]:
+│    """Generate semantic descriptions for each cluster using LiteLLM in parallel."""
+│
+│    from pipelines.packages.providers.litellm import litellm
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/archetypes/main.py
+---
+│import modal
+│
+│from pipelines.apps.archetypes._internal import app as web_app
+│from pipelines.packages import constants
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│@app.function(timeout=3600, concurrency_limit=4)
+│@modal.asgi_app(label=APP_LABEL)
+│def main():
+│    """Entrypoint for the `persons` app."""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/etl/_run.py
+---
+│"""FastAPI app to run ETL pipelines.
+│
+│- Manage Motherduck destinations for customers (currently manual)
+│- Extract source data from sources like Shopify and load it to customer's Motherduck database.
+│- Run SQLMesh transforms over the loaded data.
+│"""
+│
+│import os
+│import typing as t
+│
+│import fastapi
+│from fastapi import Depends
+│
+│from pipelines.packages import logger, workflows
+│from pipelines.packages.app_types import (
+│    ExtractInput,
+│    SnapshotInput,
+│    SourceInput,
+│    SyncInput,
+│)
+│from pipelines.packages.common import (
+│    get_default_snapshot_for_today,
+│    make_org_database_name,
+│)
+│from pipelines.packages.constants import (
+│    DataSource,
+│    DestinationType,
+│    MissingRecordError,
+│)
+│from pipelines.packages.providers import modal as modal_utils
+│from pipelines.packages.providers.motherduck import make_motherduck_conn
+│from pipelines.packages.providers.supabase import client as supabase_client
+│from pipelines.packages.providers.supabase import queries
+│
+⋮...
+│@logger.instrument
+│def _fetch_rw_database_credentials(
+│    org_slug: str, service: DestinationType, snapshot: int
+│):
+│    """Only needed for operations that write to the database."""
+⋮...
+│@logger.instrument
+│def create_database_for_snapshot(
+│    org_slug: str, service: DestinationType, snapshot: int
+⋮...
+│@logger.instrument
+│def drop_database_for_snapshot(org_slug: str, service: DestinationType, snapshot: int):
+⋮...
+│@logger.instrument
+│def _assemble_dlt_pipeline(
+│    org_slug: str,
+│    source: DataSource,
+│    start_date: str,
+│    snapshot: int | None = None,
+│    test: bool = False,
+│):
+│    """Utility routine to construct the DLT pipeline object, for the specified source."""
+│    from pipelines.packages.etl.destinations import (
+│        make_dlt_destination,
+│        make_test_dlt_destination,
+│    )
+│    from pipelines.packages.etl.sources import ShopifySource
+│
+⋮...
+│@logger.instrument
+│def extract_source(body: ExtractInput, org_slug: str):
+│    from pipelines.packages.etl.extract import run
+│
+⋮...
+│@logger.instrument
+│def undo_extract_source(body: ExtractInput, org_slug: str):
+│    from pipelines.packages.etl.extract import reset
+│
+⋮...
+│@logger.instrument
+│def run_census(body: SnapshotInput, org_slug: str):
+│    from pipelines.packages.etl.transform.external.census import run_for_source
+│
+⋮...
+│@logger.instrument
+│def undo_run_census(body: SnapshotInput, org_slug: str):
+⋮...
+│@logger.instrument
+│def create_external_share(snapshot: int, org_slug: str):
+⋮...
+│@logger.instrument
+│def drop_external_share(snapshot: int, org_slug: str):
+⋮...
+│@logger.instrument
+│def attach_share_to_gestalt_account(snapshot: int, org_slug: str, md_share_url: str):
+⋮...
+│@logger.instrument
+│def run_transform_gestalt(snapshot: int, org_slug: str):
+⋮...
+│@logger.instrument
+│def undo_run_transform_gestalt(snapshot: int, org_slug: str):
+⋮...
+│@logger.instrument
+│def add_census_record(snapshot: int, org_slug: str):
+⋮...
+│@logger.instrument
+│def undo_census_record(snapshot: int, org_slug: str):
+⋮...
+│@logger.instrument
+│def undo_sync_snapshot(snapshot: int, org_slug: str):
+│    """Drop the input snapshot for the specified org."""
+│
+⋮...
+│@app.post("/destination/create")
+│@logger.instrument
+│def create_destination(org_slug: str = Depends(modal_utils.read_org_slug_from_request)):
+⋮...
+│@app.post("/destination/delete")
+│@logger.instrument
+│def delete_destination(org_slug: str = Depends(modal_utils.read_org_slug_from_request)):
+⋮...
+│@app.post("destination/source/delete")
+│@logger.instrument
+│def delete_source(
+│    source: SourceInput, org_slug: str = Depends(modal_utils.read_org_slug_from_request)
+⋮...
+│class DatabaseSnapshot(workflows.CachedTask):
+│    org_slug: str
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+│class ExtractDataSource(workflows.CachedTask):
+│    org_slug: str
+⋮...
+│    @property
+│    def kvstore_id(self):
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+│class CensusSnapshot(workflows.CachedTask):
+│    org_slug: str
+⋮...
+│    @property
+│    def kvstore_id(self):
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+│class ExternalShare(workflows.CachedTask):
+│    org_slug: str
+⋮...
+│    @property
+│    def kvstore_id(self):
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+│class CommitCensusRecord(workflows.CachedTask):
+│    org_slug: str
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+│class TransformGestalt(workflows.CachedTask):
+│    org_slug: str
+⋮...
+│    @property
+│    def kvstore_id(self):
+⋮...
+│    def do(self):
+⋮...
+│    def undo(self):
+⋮...
+│@app.post("/extract")
+│@logger.instrument
+│def extract(
+│    body: ExtractInput, org_slug: str = Depends(modal_utils.read_org_slug_from_request)
+⋮...
+│@app.post("/census")
+│@logger.instrument
+│def transform_external(
+│    body: SnapshotInput, org_slug: str = Depends(modal_utils.read_org_slug_from_request)
+⋮...
+│@app.post("/transform-gestalt")
+│@logger.instrument
+│def transform_gestalt(
+│    body: SnapshotInput, org_slug: str = Depends(modal_utils.read_org_slug_from_request)
+⋮...
+│@app.post("/sync")
+│@logger.instrument
+│def sync_snapshot(body: SyncInput, org_slug: str):
+│    """Run the entire ETL pipeline for the specified org.
+│
+│    - Check if we have Motherduck credentials for the org - both for their MD and Gestalt's
+│        MD accounts. If not, raise an error.
+│    - Go over all the sources an integration exists for the org, and run the extract pipeline for each.
+│    - Run the transform pipeline.
+│    """
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/etl/main.py
+---
+│import modal
+│
+│from pipelines.apps.etl._run import app as web_app
+│from pipelines.packages import constants
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│@app.function(timeout=3600, concurrency_limit=4)
+│@modal.asgi_app(label="etl")
+│def main():
+│    """Entrypoint for the ETL pipeline."""
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/testing/gpu.py
+---
+│import modal
+│
+│from pipelines.packages import constants
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│@app.cls(gpu=GPU_CONFIG, concurrency_limit=1)
+│class Main:
+│    @modal.build()
+│    def build(self):
+│        """
+│        Initialize the UMAP model, so if it fetches or creates any disk artifacts,
+│        that get cached and we can skip it at runtime.
+│        """
+│        import cuml  # type: ignore
+│        from cuml.manifold import UMAP  # type: ignore
+│
+⋮...
+│    @modal.method()
+│    def run_umap(self, data, **kwargs):
+│        from pipelines.packages.dimensionality_reduction import UMAPParams
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/constellation/_visualize.py
+---
+│import typing as t
+│
+│import fastapi
+│import numpy as np
+│import pyarrow as pa
+│from pipelines.apps.persons import _query
+│from pipelines.packages import app_types, logger
+│from pipelines.packages.clustering import (
+│    DBSCANParams,
+│    GMMParams,
+│    HierarchicalParams,
+│    KMeansParams,
+│)
+│from pipelines.packages.constants import COL_PERSON_ID
+│from pipelines.packages.dimensionality_reduction import (
+│    PCAParams,
+│    TSNEParams,
+│    UMAPParams,
+│)
+│from pipelines.packages.providers import modal as modal_utils
+│from pydantic import BaseModel, Field
+│
+⋮...
+│class ReducePayload(BaseModel):
+⋮...
+│class ClusterReductionInput(BaseModel):
+⋮...
+│class ClusterPayload(BaseModel):
+⋮...
+│def _remove_low_variance_columns(data, fraction=0.1):
+⋮...
+│@app.post("/warm-up")
+│@logger.instrument
+│def warmup(org_slug: str = fastapi.Depends(modal_utils.read_org_slug_from_request)):
+│    """Warm up the motherduck connection and the GPU."""
+│
+⋮...
+│@app.post("/clear-cache")
+│@logger.instrument
+│def clear_cache(
+│    snapshot: int,
+│    org_slug: str = fastapi.Depends(modal_utils.read_org_slug_from_request),
+│):
+│    """Clear the cache."""
+│
+⋮...
+│@logger.instrument
+│def _run_dim_reduction(
+│    data: "pa.Table",
+│    reduce: t.Union[PCAParams, UMAPParams, TSNEParams],
+│    mode: str,
+│    fractionRemove: float,
+│) -> "pa.Table":
+│    """Run dimensionality reduction."""
+│
+⋮...
+│@logger.instrument
+│def _run_clustering(
+│    dim_reduction_output: pa.Table,
+│    cluster: t.Union[DBSCANParams, GMMParams, KMeansParams, HierarchicalParams],
+│    mode: str,
+│) -> pa.Table:
+│    """Run clustering."""
+│
+⋮...
+│@app.post("/reduce")
+│@logger.instrument
+│def reduce_population(
+│    body: ReducePayload,
+│    org_slug: str = fastapi.Depends(modal_utils.read_org_slug_from_request),
+│):
+│    """Reduce the population."""
+│
+⋮...
+│@app.post("/cluster")
+│@logger.instrument
+│def cluster_population(
+│    body: ClusterPayload,
+│    org_slug: str = fastapi.Depends(modal_utils.read_org_slug_from_request),
+│):
+│    """Cluster the input data"""
+│
+⋮...
+
+
+---
+/home/ubuntu/repos/g-pipelines/src/pipelines/apps/constellation/main.py
+---
+│import modal
+│
+│from pipelines.apps.constellation._visualize import app as web_app
+│from pipelines.packages import constants
+│from pipelines.packages.providers import modal as modal_utils
+│
+⋮...
+│@app.cls(gpu=GPU_CONFIG, concurrency_limit=4)
+│class Main:
+│    @modal.build()
+│    def build(self):
+│        """
+│        Initialize the UMAP model, so if it fetches or creates any disk artifacts,
+│        that get cached and we can skip it at runtime.
+│        """
+│        import cuml  # type: ignore
+│        from cuml.manifold import UMAP  # type: ignore
+│
+⋮...
+│    @modal.asgi_app(label="constellation")
+│    def visualize(self):
+⋮...
+
+
+---

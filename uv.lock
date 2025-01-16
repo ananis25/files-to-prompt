@@ -49,11 +49,11 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "grep-ast", specifier = ">=0.4.1" },
+    { name = "grep-ast", specifier = "==0.4.1" },
     { name = "pytest", marker = "extra == 'test'" },
-    { name = "tree-sitter", specifier = ">=0.21.3" },
-    { name = "tree-sitter-languages", specifier = ">=1.10.2" },
-    { name = "typer-slim", specifier = ">=0.15.1" },
+    { name = "tree-sitter", specifier = "==0.21.3" },
+    { name = "tree-sitter-languages", specifier = "==1.10.2" },
+    { name = "typer-slim", specifier = "==0.15.1" },
 ]
 
 [[package]]
