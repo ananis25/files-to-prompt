@@ -32,4 +32,4 @@ test = ["pytest"]
 where = ["files_to_prompt"]
 
 [tool.setuptools.package-data]
-files_to_prompt = ["*.scm"]
+"*" = [*.scm]
