@@ -1,9 +1,17 @@
 import os
 from fnmatch import fnmatch
+from pathlib import Path
+from typing import Annotated, List, Optional
 
-import click
+import typer
+
+from files_to_prompt.repomap import generate_repo_map
 
 global_index = 1
+
+
+def count_tokens(text):
+    return f"\nNum tokens: {len(text) // 4}-{len(text) // 3}\n"
 
 
 def should_ignore(path, gitignore_rules):
@@ -62,12 +70,7 @@ def process_path(
     claude_xml,
 ):
     if os.path.isfile(path):
-        try:
-            with open(path, "r") as f:
-                print_path(writer, path, f.read(), claude_xml)
-        except UnicodeDecodeError:
-            warning_message = f"Warning: Skipping file {path} due to UnicodeDecodeError"
-            click.echo(click.style(warning_message, fg="red"), err=True)
+        yield path
     elif os.path.isdir(path):
         for root, dirs, files in os.walk(path):
             if not include_hidden:
@@ -95,117 +98,121 @@ def process_path(
                 ]
 
             if extensions:
-                files = [f for f in files if f.endswith(extensions)]
+                files = [f for f in files if f.endswith(tuple(extensions))]
 
             for file in sorted(files):
                 file_path = os.path.join(root, file)
-                try:
-                    with open(file_path, "r") as f:
-                        print_path(writer, file_path, f.read(), claude_xml)
-                except UnicodeDecodeError:
-                    warning_message = (
-                        f"Warning: Skipping file {file_path} due to UnicodeDecodeError"
-                    )
-                    click.echo(click.style(warning_message, fg="red"), err=True)
+                yield file_path
 
 
-@click.command()
-@click.argument("paths", nargs=-1, type=click.Path(exists=True))
-@click.option("extensions", "-e", "--extension", multiple=True)
-@click.option(
-    "--include-hidden",
-    is_flag=True,
-    help="Include files and folders starting with .",
-)
-@click.option(
-    "--ignore-gitignore",
-    is_flag=True,
-    help="Ignore .gitignore files and include all files",
-)
-@click.option(
-    "ignore_patterns",
-    "--ignore",
-    multiple=True,
-    default=[],
-    help="List of patterns to ignore",
-)
-@click.option(
-    "output_file",
-    "-o",
-    "--output",
-    type=click.Path(writable=True),
-    help="Output to a file instead of stdout",
-)
-@click.option(
-    "claude_xml",
-    "-c",
-    "--cxml",
-    is_flag=True,
-    help="Output in XML-ish format suitable for Claude's long context window.",
-)
-@click.version_option()
-def cli(
-    paths,
-    extensions,
-    include_hidden,
-    ignore_gitignore,
-    ignore_patterns,
-    output_file,
-    claude_xml,
-):
+app = typer.Typer()
+
+
+@app.command()
+def main(
+    paths: Annotated[List[Path], typer.Argument(exists=True)],
+    extensions: Annotated[List[str], typer.Option("--extension", "-e")] = [],
+    include_hidden: Annotated[
+        bool,
+        typer.Option(
+            "--include-hidden", help="Include files and folders starting with ."
+        ),
+    ] = False,
+    repomap: Annotated[bool, typer.Option(help="Output in repomap format")] = False,
+    ignore_gitignore: Annotated[
+        bool, typer.Option(help="Ignore .gitignore files and include all files")
+    ] = False,
+    ignore_patterns: Annotated[
+        List[str], typer.Option("--ignore", help="List of patterns to ignore")
+    ] = [],
+    output_file: Annotated[
+        Optional[Path],
+        typer.Option("--output", "-o", help="Output to a file instead of stdout"),
+    ] = None,
+    claude_xml: Annotated[
+        bool,
+        typer.Option(
+            "--cxml",
+            "-c",
+            help="Output in XML-ish format suitable for Claude's long context window.",
+        ),
+    ] = False,
+) -> None:
     """
     Takes one or more paths to files or directories and outputs every file,
-    recursively, each one preceded with its filename like this:
+    recursively, each one preceded with its filename.
 
+    The output format depends on the flags:
+
+    Standard format:
     path/to/file.py
     ----
     Contents of file.py goes here
-
     ---
-    path/to/file2.py
-    ---
-    ...
 
-    If the `--cxml` flag is provided, the output will be structured as follows:
-
+    Claude XML format (with --cxml):
     <documents>
     <document path="path/to/file1.txt">
     Contents of file1.txt
     </document>
-
-    <document path="path/to/file2.txt">
-    Contents of file2.txt
-    </document>
-    ...
     </documents>
     """
     # Reset global_index for pytest
     global global_index
     global_index = 1
     gitignore_rules = []
-    writer = click.echo
+
+    writer = typer.echo
     fp = None
     if output_file:
         fp = open(output_file, "w")
-        writer = lambda s: print(s, file=fp)
-    for path in paths:
-        if not os.path.exists(path):
-            raise click.BadArgumentUsage(f"Path does not exist: {path}")
-        if not ignore_gitignore:
-            gitignore_rules.extend(read_gitignore(os.path.dirname(path)))
-        if claude_xml and path == paths[0]:
-            writer("<documents>")
-        process_path(
-            path,
-            extensions,
-            include_hidden,
-            ignore_gitignore,
-            gitignore_rules,
-            ignore_patterns,
-            writer,
-            claude_xml,
-        )
-    if claude_xml:
-        writer("</documents>")
-    if fp:
-        fp.close()
+        writer = lambda s: print(s, file=fp)  # noqa
+
+    try:
+        for path in paths:
+            if not path.exists():
+                raise typer.BadParameter(f"Path does not exist: {path}")
+
+            if not ignore_gitignore:
+                gitignore_rules.extend(read_gitignore(path.parent))
+
+            if claude_xml and path == paths[0]:
+                writer("<documents>")
+
+            for file_path in process_path(
+                path,
+                extensions,
+                include_hidden,
+                ignore_gitignore,
+                gitignore_rules,
+                ignore_patterns,
+                writer,
+                claude_xml,
+            ):
+                try:
+                    if repomap:
+                        text = generate_repo_map([str(file_path)])
+                        print_path(writer, file_path, text, claude_xml)
+                    else:
+                        with open(file_path, "r") as f:
+                            print_path(writer, file_path, f.read(), claude_xml)
+                except UnicodeDecodeError:
+                    typer.secho(
+                        f"Warning: Skipping file {file_path} due to UnicodeDecodeError",
+                        fg=typer.colors.RED,
+                        err=True,
+                    )
+
+        if claude_xml:
+            writer("</documents>")
+
+    finally:
+        if fp:
+            fp.close()
+            with output_file.open() as f:  # noqa
+                content = f.read()
+                typer.echo(count_tokens(content))
+
+
+if __name__ == "__main__":
+    app()

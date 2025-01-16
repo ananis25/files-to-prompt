@@ -1,9 +1,6 @@
 # files-to-prompt
 
-[![PyPI](https://img.shields.io/pypi/v/files-to-prompt.svg)](https://pypi.org/project/files-to-prompt/)
-[![Changelog](https://img.shields.io/github/v/release/simonw/files-to-prompt?include_prereleases&label=changelog)](https://github.com/simonw/files-to-prompt/releases)
-[![Tests](https://github.com/simonw/files-to-prompt/actions/workflows/test.yml/badge.svg)](https://github.com/simonw/files-to-prompt/actions/workflows/test.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/files-to-prompt/blob/master/LICENSE)
+**NOTE** - forked to add some niceties, like getting a repomap for a codebase, based off Aider. 
 
 Concatenate a directory full of files into a single prompt for use with LLMs
 
@@ -11,10 +8,10 @@ For background on this project see [Building files-to-prompt entirely using Clau
 
 ## Installation
 
-Install this tool using `pip`:
+Install this tool using `uv`:
 
 ```bash
-pip install files-to-prompt
+uv tool install 
 ```
 
 ## Usage
@@ -62,6 +59,12 @@ This will output the contents of every file, with each file preceded by its rela
 
   ```bash
   files-to-prompt path/to/directory -o output.txt
+  ```
+
+- `--repomap`: Gets a repomap for a codebase - the docstrings and class/function definitions. Works well for python/js only for now.
+
+  ```bash
+  files-to-prompt path/to/directory --repomap
   ```
 
 ### Example
@@ -151,14 +154,7 @@ To contribute to this tool, first checkout the code. Then create a new virtual e
 
 ```bash
 cd files-to-prompt
-python -m venv venv
-source venv/bin/activate
-```
-
-Now install the dependencies and test dependencies:
-
-```bash
-pip install -e '.[test]'
+uv sync
 ```
 
 To run the tests:
