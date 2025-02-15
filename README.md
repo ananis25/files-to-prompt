@@ -1,6 +1,6 @@
 # files-to-prompt
 
-**NOTE** - forked to add some niceties, like getting a repomap for a codebase, based off Aider. 
+**NOTE** - forked to add some niceties, like getting a repomap for a codebase. Based off Aider, but fixed the tree sitter queries to include docstrings and imports in each module.
 
 Concatenate a directory full of files into a single prompt for use with LLMs
 
